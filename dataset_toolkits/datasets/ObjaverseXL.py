@@ -5,6 +5,8 @@ from tqdm import tqdm
 import pandas as pd
 import objaverse.xl as oxl
 from utils import get_file_hash
+import json
+import requests
 
 
 def add_args(parser: argparse.ArgumentParser):
@@ -17,6 +19,27 @@ def get_metadata(source, **kwargs):
         metadata = pd.read_csv("hf://datasets/JeffreyXiang/TRELLIS-500K/ObjaverseXL_sketchfab.csv")
     elif source == 'github':
         metadata = pd.read_csv("hf://datasets/JeffreyXiang/TRELLIS-500K/ObjaverseXL_github.csv")
+    elif source == 'clean_filter': # should be full clean filter, see note below
+        metadata = pd.read_csv("hf://datasets/JeffreyXiang/TRELLIS-500K/ObjaverseXL_sketchfab.csv")
+        
+        clean_ids_url = "https://raw.githubusercontent.com/xxlong0/Wonder3D/main/data_lists/lvis_uids_filter_by_vertex.json"
+        clean_ids = json.loads(requests.get(clean_ids_url).text)
+        
+        metadata['uid'] = metadata['file_identifier'].str.extract(r'3d-models/([^/]+)')
+        metadata = metadata[metadata['uid'].isin(clean_ids)]
+        metadata = metadata.drop('uid', axis=1)
+        # TODO: this is lossy, there are 36044 clean IDs but only 14634 rows in 
+        # filtered ObjaverseXL_sketchfab; maybe rest are in ObjaverseXL_github?
+    elif source == 'clean_small_filter': # small sample of clean subset
+        metadata = pd.read_csv("hf://datasets/JeffreyXiang/TRELLIS-500K/ObjaverseXL_sketchfab.csv")
+        
+        clean_ids_url = "https://raw.githubusercontent.com/xxlong0/Wonder3D/main/data_lists/lvis_uids_filter_by_vertex.json"
+        clean_ids = json.loads(requests.get(clean_ids_url).text)
+        
+        metadata['uid'] = metadata['file_identifier'].str.extract(r'3d-models/([^/]+)')
+        metadata = metadata[metadata['uid'].isin(clean_ids)]
+        metadata = metadata.drop('uid', axis=1)
+        metadata = metadata.head(100)
     else:
         raise ValueError(f"Invalid source: {source}")
     return metadata
