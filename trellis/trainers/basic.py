@@ -371,44 +371,60 @@ class BasicTrainer(Trainer):
             statuses.append(dict_foreach(status, lambda x: x.item() if isinstance(x, torch.Tensor) else x))
             if self.elastic_controller_config is not None:
                 elastic_controller_logs.append(self.elastic_controller.log())
-        ## gradient clip
-        if self.grad_clip is not None:
-            if self.fp16_mode == 'amp':
-                self.scaler.unscale_(self.optimizer)
-            elif self.fp16_mode == 'inflat_all':
-                model_grads_to_master_grads(self.model_params, self.master_params)
-                self.master_params[0].grad.mul_(1.0 / (2 ** self.log_scale))
-            if isinstance(self.grad_clip, float):
-                grad_norm = torch.nn.utils.clip_grad_norm_(self.master_params, self.grad_clip)
-            else:
-                grad_norm = self.grad_clip(self.master_params)
-            if torch.isfinite(grad_norm):
-                statuses[-1]['grad_norm'] = grad_norm.item()
-        ## step
-        if self.fp16_mode == 'amp':
-            prev_scale = self.scaler.get_scale()
-            self.scaler.step(self.optimizer)
-            self.scaler.update()
-        elif self.fp16_mode == 'inflat_all':
-            prev_scale = 2 ** self.log_scale
-            if not any(not p.grad.isfinite().all() for p in self.model_params):
-                if self.grad_clip is None:
+
+        grads_exist = any(p.grad is not None for p in self.model_params)
+        if grads_exist:
+            ## gradient clip
+            if self.grad_clip is not None:
+                if self.fp16_mode == 'amp':
+                    self.scaler.unscale_(self.optimizer)
+                elif self.fp16_mode == 'inflat_all':
                     model_grads_to_master_grads(self.model_params, self.master_params)
                     self.master_params[0].grad.mul_(1.0 / (2 ** self.log_scale))
-                self.optimizer.step()
-                master_params_to_model_params(self.model_params, self.master_params)
-                self.log_scale += self.fp16_scale_growth
+                if isinstance(self.grad_clip, float):
+                    grad_norm = torch.nn.utils.clip_grad_norm_(self.master_params, self.grad_clip)
+                else:
+                    grad_norm = self.grad_clip(self.master_params)
+                if torch.isfinite(grad_norm):
+                    statuses[-1]['grad_norm'] = grad_norm.item()
+            ## step
+            if self.fp16_mode == 'amp':
+                prev_scale = self.scaler.get_scale()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+            elif self.fp16_mode == 'inflat_all':
+                prev_scale = 2 ** self.log_scale
+                if not any(not p.grad.isfinite().all() for p in self.model_params):
+                    if self.grad_clip is None:
+                        model_grads_to_master_grads(self.model_params, self.master_params)
+                        self.master_params[0].grad.mul_(1.0 / (2 ** self.log_scale))
+                    self.optimizer.step()
+                    master_params_to_model_params(self.model_params, self.master_params)
+                    self.log_scale += self.fp16_scale_growth
+                else:
+                    self.log_scale -= 1
             else:
-                self.log_scale -= 1
-        else:
-            prev_scale = 1.0
-            if not any(not p.grad.isfinite().all() for p in self.model_params):
-                self.optimizer.step()
-            else:
-                print('\n\033[93mWarning: NaN detected in gradients. Skipping update.\033[0m') 
+                prev_scale = 1.0
+                if not any(not p.grad.isfinite().all() for p in self.model_params):
+                    self.optimizer.step()
+                else:
+                    print('\n\033[93mWarning: NaN detected in gradients. Skipping update.\033[0m') 
+        else: # No grads_exist
+            if not self.suppress_no_grad:
+                print('\n\033[93mInfo: No gradients computed in this step. Skipping gradient clipping and optimizer update.\033[0m')
+             # Set prev_scale for logging purposes if needed, although grad norms won't be logged
+            #  if self.fp16_mode == 'amp':
+            #      prev_scale = self.scaler.get_scale() 
+            #  elif self.fp16_mode == 'inflat_all':
+            #      prev_scale = 2 ** self.log_scale
+            #  else:
+            #      prev_scale = 1.0
+
         ## adjust learning rate
         if self.lr_scheduler_config is not None:
-            statuses[-1]['lr'] = self.lr_scheduler.get_last_lr()[0]
+            # Ensure statuses list is not empty before trying to access [-1]
+            if statuses:
+                 statuses[-1]['lr'] = self.lr_scheduler.get_last_lr()[0]
             self.lr_scheduler.step()
 
         # Logs

@@ -46,10 +46,12 @@ class Trainer:
         i_sample=10000,
         i_save=10000,
         i_ddpcheck=10000,
+        suppress_no_grad=False,
         **kwargs
     ):
         assert batch_size is not None or batch_size_per_gpu is not None, 'Either batch_size or batch_size_per_gpu must be specified.'
 
+        self.suppress_no_grad = suppress_no_grad
         self.models = models
         self.dataset = dataset
         self.batch_split = batch_split if batch_split is not None else 1
@@ -127,7 +129,7 @@ class Trainer:
         """
         pass
     
-    def prepare_dataloader(self, **kwargs):
+    def prepare_dataloader(self, num_workers=None, **kwargs):
         """
         Prepare dataloader.
         """
@@ -135,10 +137,11 @@ class Trainer:
             self.dataset,
             shuffle=True,
         )
+        num_workers = num_workers or int(np.ceil(os.cpu_count() / torch.cuda.device_count()))
         self.dataloader = DataLoader(
             self.dataset,
             batch_size=self.batch_size_per_gpu,
-            num_workers=int(np.ceil(os.cpu_count() / torch.cuda.device_count())),
+            num_workers=num_workers,
             pin_memory=True,
             drop_last=True,
             persistent_workers=True,

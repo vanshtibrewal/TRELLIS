@@ -17,6 +17,8 @@ __attributes = {
     
     'SLatFlowModel': 'structured_latent_flow',
     'ElasticSLatFlowModel': 'structured_latent_flow',
+
+    'VectorQuantizerEMA': 'vq',
 }
 
 __submodules = []

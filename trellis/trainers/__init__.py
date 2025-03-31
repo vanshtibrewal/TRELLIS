@@ -9,6 +9,8 @@ __attributes = {
     'SLatVaeRadianceFieldDecoderTrainer': 'vae.structured_latent_vae_rf_dec',
     'SLatVaeMeshDecoderTrainer': 'vae.structured_latent_vae_mesh_dec',
     
+    'SLatVqVaeGaussianTrainer': 'vae.structured_latent_vq_vae_gaussian',
+    
     'FlowMatchingTrainer': 'flow_matching.flow_matching',
     'FlowMatchingCFGTrainer': 'flow_matching.flow_matching',
     'TextConditionedFlowMatchingCFGTrainer': 'flow_matching.flow_matching',

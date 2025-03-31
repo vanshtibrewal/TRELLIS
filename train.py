@@ -1,4 +1,6 @@
 import os
+os.environ['ATTN_BACKEND'] = 'xformers'
+
 import sys
 import json
 import glob
@@ -55,6 +57,27 @@ def get_model_summary(model):
     model_summary += f'Number of trainable parameters: {num_trainable_params}\n'
     return model_summary
 
+def load_model_state_dict(model, path: str):
+    """
+    Load a state dict into the given model from a checkpoint.
+
+    Args:
+        model: The model instance to load the state dict into.
+        path: The path to the checkpoint. Can be either local path or a Hugging Face model name.
+    """
+    from safetensors.torch import load_file
+    is_local = os.path.exists(f"{path}.json") and os.path.exists(f"{path}.safetensors")
+
+    if is_local:
+        model_file = f"{path}.safetensors"
+    else:
+        from huggingface_hub import hf_hub_download
+        path_parts = path.split('/')
+        repo_id = f'{path_parts[0]}/{path_parts[1]}'
+        model_name = '/'.join(path_parts[2:])
+        model_file = hf_hub_download(repo_id, f"{model_name}.safetensors")
+
+    model.load_state_dict(load_file(model_file))
 
 def main(local_rank, cfg):
     # Set up distributed training
@@ -74,6 +97,24 @@ def main(local_rank, cfg):
         name: getattr(models, model.name)(**model.args).cuda()
         for name, model in cfg.models.items()
     }
+
+    any_load = False
+    for name, model in cfg.models.items():
+        if hasattr(model, 'finetune_path'):
+            load_model_state_dict(model_dict[name], model.finetune_path)
+            if rank == 0:
+                print(f'\nLoaded {name} from {model.finetune_path}')
+            any_load = True
+        
+        if hasattr(model, 'frozen') and model.frozen:
+            for param in model_dict[name].parameters():
+                param.requires_grad = False
+            if rank == 0:
+                print(f'\n{name} is frozen')
+    
+    if rank == 0:
+        if any_load:
+            print("\nWARN: models loaded from finetune_path overriden by checkpoints in load_dir/out_dir")
 
     # Model summary
     if rank == 0:
